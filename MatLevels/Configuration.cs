@@ -1,7 +1,8 @@
-﻿using Dalamud.Configuration;
+using Dalamud.Configuration;
 using System;
+using System.Collections.Generic;
 
-namespace SamplePlugin;
+namespace MatLevels;
 
 [Serializable]
 public class Configuration : IPluginConfiguration
@@ -11,9 +12,11 @@ public class Configuration : IPluginConfiguration
     public bool IsConfigWindowMovable { get; set; } = true;
     public bool SomePropertyToBeSavedAndWithADefault { get; set; } = true;
 
+    public List<string> Categories { get; set; } = new List<string>();
+
     // The below exists just to make saving less cumbersome
     public void Save()
     {
-        Plugin.PluginInterface.SavePluginConfig(this);
+        Service.PluginInterface.SavePluginConfig(this);
     }
 }
