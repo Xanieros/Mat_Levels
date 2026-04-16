@@ -1,31 +1,24 @@
 using System;
 using System.Collections.Generic;
 using EasyCaching.InMemory;
-using System.Text;
-using System.Globalization;
-using System.Numerics;
-using Dalamud.Game.ClientState.Keys;
-using Dalamud.Game.Text.SeStringHandling;
-using Dalamud.Game.Text.SeStringHandling.Payloads;
-using Dalamud.Interface.Utility;
-using FFXIVClientStructs.FFXIV.Client.System.Memory;
-using FFXIVClientStructs.FFXIV.Component.GUI;
 using System.Threading;
 using System.Threading.Tasks;
-using Lumina.Excel;
 using Lumina.Excel.Sheets;
 using System.Collections.Concurrent;
+using MatLevels.Core.Models;
+using MatLevels.Core.Services;
+using MatLevels.Plugin;
 
-namespace MatLevels;
+namespace MatLevels.Data.DAOs;
 public class ItemLevelLookup : IDisposable
 {
-    private readonly Plugin plugin;
+    private readonly MainPlugin plugin;
     private readonly InMemoryCaching cache = new("levels", new InMemoryCachingOptions { EnableReadDeepClone = false });
     private readonly ConcurrentQueue<uint> requestedItems = new();
     private readonly ConcurrentDictionary<uint, (Task Task, CancellationTokenSource Token)> activeTasks = new();
     private readonly CancellationTokenSource cancellationTokenSource = new();
 
-    public ItemLevelLookup(Plugin plugin)
+    public ItemLevelLookup(MainPlugin plugin)
     {
         this.plugin = plugin;
         Task.Run(ProcessQueue, cancellationTokenSource.Token).ContinueWith(_ => { }, TaskContinuationOptions.OnlyOnCanceled);
@@ -37,40 +30,33 @@ public class ItemLevelLookup : IDisposable
         return true;
     }
 
-    private static bool ToCraftMatItemId(ulong fullItemId, out uint itemId)//, ExcelSheet<Item>? sheet = null)
+    private static bool ToCraftMatItemId(ulong fullItemId, out uint itemId)
     {
         var sheet = Service.DataManager.Excel.GetSheet<Item>();
-        //Service.Log.Debug($"fullItemId: {fullItemId}");
-        itemId = (uint)(fullItemId % 1000000); //skips HQ
+        itemId = (uint)(fullItemId % 1000000); 
         sheet ??= Service.DataManager.Excel.GetSheet<Item>();
         var tmp = sheet.GetRowOrDefault(itemId);
         if (tmp == null) return false;
         Item item = (Item)tmp;
-        //Service.Log.Debug($"Item id: {itemId}, category row id: {item.ItemUICategory.RowId}");
-        //Service.Log.Debug($"itemid: {itemId}, name hopefully: {item.Name}, rowid: {item.ItemUICategory.RowId}");
 
-        if ((item.ItemUICategory.RowId <= 46 || item.ItemUICategory.RowId > 54) && item.ItemUICategory.RowId != 45) //9 categories
+        if ((item.ItemUICategory.RowId <= 46 || item.ItemUICategory.RowId > 54) && item.ItemUICategory.RowId != 45)
         {
-            Service.Log.Debug($"Skipped itemid: {itemId}, name hopefully: {item.Name}, rowid: {item.ItemUICategory.RowId}");
             return false;
         }
-        Service.Log.Debug($"Added itemid: {itemId}, name hopefully: {item.Name}, rowid: {item.ItemUICategory.RowId}");
         return sheet.GetRowOrDefault(itemId) is not { ItemSearchCategory.RowId: 0 };
     }
 
     public void Fetch(IEnumerable<uint> items)
     {
-        //var itemSheet = Service.DataManager.Excel.GetSheet<Item>();
         foreach (var id in items)
         {
-            if (!ToCraftMatItemId(id, out var itemId))//, itemSheet))
+            if (!ToCraftMatItemId(id, out var itemId))
                 continue;
             if (cache.Get(itemId.ToString()) != null || (activeTasks.TryGetValue(itemId, out var t) && !t.Task.IsFaulted))
                 continue;
             if (!requestedItems.ToArray().Contains(itemId))
                 requestedItems.Enqueue(itemId);
         }
-        Service.Log.Debug($"Made it to end of Fetch {requestedItems.Count}");
     }
 
     private async Task ProcessQueue()
@@ -116,7 +102,6 @@ public class ItemLevelLookup : IDisposable
                 plugin.ItemLevelTooltip.Refresh(result);
             else
                 plugin.ItemLevelTooltip.FetchFailed(itemIds);
-            Service.Log.Debug($"Fetching {itemIds.Count} items took {(DateTime.Now - fetchStart).TotalMilliseconds:F0}ms");
             return result;
         }
     }

@@ -1,121 +1,71 @@
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Game.Command;
-using Dalamud.Game.Inventory;
 using Dalamud.Interface.Windowing;
-using Dalamud.IoC;
 using Dalamud.Plugin;
-using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
-using FFXIVClientStructs.FFXIV.Client.Game.Fate;
-using FFXIVClientStructs.FFXIV.Common.Component.Excel;
-using Lumina.Excel;
-using Lumina.Excel.Sheets;
-using MatLevels.Windows;
+using MatLevels.Configurations;
+using MatLevels.Core.Models;
+using MatLevels.Core.Services;
+using MatLevels.Data.DAOs;
+using MatLevels.Features.ItemLevelTooltip;
+using MatLevels.UI.Windows;
+using RecipeLookup = MatLevels.Data.DAOs.RecipeLookup;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 
-namespace MatLevels;
+namespace MatLevels.Plugin;
 
-public sealed class Plugin : IDalamudPlugin
+public sealed class MainPlugin : IDalamudPlugin
 {
 
     private const string CommandName = "/mlconfig";
-
     public Configuration Configuration { get; init; }
-
     public readonly WindowSystem WindowSystem = new("MatLevels");
     private ConfigWindow ConfigWindow { get; init; }
-    //private MainWindow MainWindow { get; init; }
-
     public ItemLevelTooltip ItemLevelTooltip { get; }
     public ItemLevelLookup ItemLevelLookup { get; }
     public RecipeLookup RecipeLookup { get; }
     public Hooks Hooks { get; }
     public List<RecipeData> Recipes { get; internal set; }
 
-    public Plugin(IDalamudPluginInterface pluginInterface)
+    public MainPlugin(IDalamudPluginInterface pluginInterface)
     {
         Service.Initialize(pluginInterface);
 
         Configuration = Service.PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        if (Configuration.AllowedCategories.Count == 0)
+        {
+            Configuration.AllowedCategories.Add(new Category { Name = "Metal", IsAllowed = true });
+            Configuration.AllowedCategories.Add(new Category { Name = "Cloth", IsAllowed = true });
+            Configuration.AllowedCategories.Add(new Category { Name = "Lumber", IsAllowed = true });
+            Configuration.AllowedCategories.Add(new Category { Name = "Seafood", IsAllowed = true });
+            Configuration.AllowedCategories.Add(new Category { Name = "Ingredient", IsAllowed = true });
+            Configuration.AllowedCategories.Add(new Category { Name = "Stone", IsAllowed = true });
+            Configuration.AllowedCategories.Add(new Category { Name = "Leather", IsAllowed = true });
+            Configuration.AllowedCategories.Add(new Category { Name = "Bone", IsAllowed = true });
+            Configuration.AllowedCategories.Add(new Category { Name = "Reagent", IsAllowed = true });
+        }
 
         ItemLevelTooltip = new ItemLevelTooltip(this);
         ItemLevelLookup = new ItemLevelLookup(this);
-        RecipeLookup = new RecipeLookup(this);
+        RecipeLookup = new RecipeLookup();
         Hooks = new Hooks(this);
 
-        Recipes = new List<RecipeData>();
-
-        var ItemSheet = Service.DataManager.Excel.GetSheet<Item>();
-        var RecipeSheet = Service.DataManager.Excel.GetSheet<Recipe>();
-        var LevelTableSheet = Service.DataManager.Excel.GetSheet<RecipeLevelTable>();
-        var craftTypeSheet = Service.DataManager.Excel.GetSheet<CraftType>();
-
-        foreach ( var row in RecipeSheet)
-        {
-            if (row.RowId == 0 || row.ItemResult.RowId == 0) continue;
-
-            var levelTableId = row.RecipeLevelTable.RowId;
-            var craftTypeId = row.CraftType.RowId;
-
-            Service.Log.Debug($"CraftTypeID: {craftTypeId}");
-
-            var recipeDto = new RecipeData
-            {
-                RecipeId = row.RowId,
-                ClassLevel = LevelTableSheet.GetRow(levelTableId).ClassJobLevel,
-                JobClass = row.CraftType.RowId
-            };
-
-            for (int i = 0; i < row.Ingredient.Count; i++)
-            {
-                var ingredientItemId = row.Ingredient[i].RowId;
-                if ( ingredientItemId == 0 || ingredientItemId > ItemSheet.Count) continue;
-
-                var ingredientItem = ItemSheet.GetRow(ingredientItemId % 1000000);
-                if (ingredientItem.RowId != 0 && ingredientItemId != uint.MaxValue)
-                {
-                    recipeDto.Ingredients.Add(new IngredientData
-                    {
-                        ItemId = ingredientItemId
-                    });
-                }
-            }
-            Recipes.Add(recipeDto);
-        }
-
-        // You might normally want to embed resources and load them from the manifest stream
-        //var goatImagePath = Path.Combine(Service.PluginInterface.AssemblyLocation.Directory?.FullName!, "goat.png");
+        Recipes = MatLevels.Core.Services.RecipeLookupService.GetAllRecipeData();
 
         ConfigWindow = new ConfigWindow(this);
-        //MainWindow = new MainWindow(this, goatImagePath);
 
         WindowSystem.AddWindow(ConfigWindow);
-        //WindowSystem.AddWindow(MainWindow);
 
         Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
             HelpMessage = "Opens the configurations for MatLevels"
         });
 
-        // Tell the UI system that we want our windows to be drawn through the window system
         Service.PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
 
-        // This adds a button to the plugin installer entry of this plugin which allows
-        // toggling the display status of the configuration ui
         Service.PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
-
-        // Adds another button doing the same but for the main ui of the plugin
-        //Service.PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
-
-        // Add a simple message to the log with level set to information
-        // Use /xllog to open the log window in-game
-        // Example Output: 00:57:54.959 | INF | [SamplePlugin] ===A cool log message from Sample Plugin===
-        //Service.Log.Information($"===A cool log message from {Service.PluginInterface.Manifest.Name}===");
-
 
         Service.AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, ["Inventory", "InventoryLarge", "InventoryExpansion"], HandleInventoryUpdate);
         Service.AddonLifecycle.RegisterListener(AddonEvent.PreSetup, "InventoryBuddy", HandleSaddlebagOpen);
@@ -126,15 +76,12 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
-        // Unregister all actions to not leak anything during disposal of plugin
         Service.PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         Service.PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
-        //Service.PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
         
         WindowSystem.RemoveAllWindows();
 
         ConfigWindow.Dispose();
-        //MainWindow.Dispose();
 
         ItemLevelTooltip.Dispose();
         ItemLevelLookup.Dispose();
@@ -145,14 +92,17 @@ public sealed class Plugin : IDalamudPlugin
         Service.CommandManager.RemoveHandler(CommandName);
     }
 
+    public void RefreshOnCategoryChange()
+    {
+        ClientOnLogin();
+    }
+
     private void OnCommand(string command, string args)
     {
-        // In response to the slash command, toggle the display status of our main ui
         ToggleConfigUi();
     }
     
     public void ToggleConfigUi() => ConfigWindow.Toggle();
-    //public void ToggleMainUi() => MainWindow.Toggle();
 
     private void ClientOnLogin()
     {
@@ -162,7 +112,6 @@ public sealed class Plugin : IDalamudPlugin
     private DateTime lastCheckInventory = DateTime.MinValue;
     private void HandleInventoryUpdate(AddonEvent type, AddonArgs args)
     {
-        //Service.Log.Debug($"In HandleInventoryUpdate with datetime: {lastCheckInventory}");
         if ((DateTime.Now - lastCheckInventory).TotalMinutes < 1) return;
         CheckInventories(InventoryType.Inventory1, InventoryType.Inventory2, InventoryType.Inventory3, InventoryType.Inventory4);
         lastCheckInventory = DateTime.Now;
@@ -185,19 +134,12 @@ public sealed class Plugin : IDalamudPlugin
         lastCheckRetainer = DateTime.Now;
     }
 
-    public void ClearCache(int type = 0, int code = 0)
-    {
-        /*var ipl = ItemPriceLookup;
-        ItemPriceLookup = new ItemPriceLookup(this);
-        ipl.Dispose();*/
-    }
-
     private void CheckInventories(params InventoryType[] inventoriesToScan)
     {
-        if (Service.PlayerState.ContentId == 0) // || !ItemPriceLookup.CheckReady())
+        if (Service.PlayerState.ContentId == 0)
             return;
-        /*if (!Configuration.PrefetchInventory)
-            return;*/
+        if (!Configuration.PrefetchInventory)
+            return;
         Service.Log.Debug($"Prefetch: checking {inventoriesToScan.Length} inventories");
         try
         {

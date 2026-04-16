@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace MatLevels;
+namespace MatLevels.Core.Models;
 public record ItemLevelData
 {
     public required string job { get; init; }

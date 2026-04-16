@@ -2,14 +2,15 @@ using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Hooking;
 using Dalamud.Utility.Signatures;
 using FFXIVClientStructs.FFXIV.Component.GUI;
-using MatLevels;
+using MatLevels.Features.ItemLevelTooltip;
 using System;
+using MatLevels.Plugin;
 
-namespace MatLevels;
+namespace MatLevels.Core.Services;
 
 public class Hooks : IDisposable
 {
-    private readonly Plugin plugin;
+    private readonly MainPlugin plugin;
 
     private unsafe delegate byte AgentItemDetailOnItemHovered(void* a1, void* a2, void* a3, void* a4, uint a5, uint a6, int* a7);
 
@@ -19,7 +20,7 @@ public class Hooks : IDisposable
     [Signature("E8 ?? ?? ?? ?? 45 85 ED 4C 8B AC 24")]
     public readonly unsafe delegate* unmanaged[Thiscall]<AtkUnitBase*, short, short, byte, void> ItemDetailSetPositionPreservingOriginal = null!;
 
-    public unsafe Hooks(Plugin plugin)
+    public unsafe Hooks(MainPlugin plugin)
     {
         this.plugin = plugin;
         Service.GameInteropProvider.InitializeFromAttributes(this);

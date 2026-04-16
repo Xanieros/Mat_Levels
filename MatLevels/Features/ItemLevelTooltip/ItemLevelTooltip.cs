@@ -1,17 +1,17 @@
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
-using Dalamud.Interface.Utility;
 using Dalamud.Utility;
 using FFXIVClientStructs.FFXIV.Client.System.Memory;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using MatLevels.Core.Models;
+using MatLevels.Core.Services;
+using MatLevels.Plugin;
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Text;
 
-namespace MatLevels;
+namespace MatLevels.Features.ItemLevelTooltip;
 
-public class ItemLevelTooltip(Plugin plugin) : IDisposable
+public class ItemLevelTooltip(MainPlugin plugin) : IDisposable
 {
     private const int NodeId = 12726;
 
@@ -21,13 +21,10 @@ public class ItemLevelTooltip(Plugin plugin) : IDisposable
     {
         var itemLevelData = plugin.ItemLevelLookup.Get(Service.GameGui.HoveredItem);
         var payloads = new List<Payload>();
-        //payloads.Add(new TextPayload("Small test"));
 
         if (itemLevelData == null) return;
 
         payloads = ParseIlData(itemLevelData);
-
-        //if (payloads.Count == 0) return;
 
         UpdateItemTooltip(itemTooltip, payloads);
     }
@@ -41,17 +38,14 @@ public class ItemLevelTooltip(Plugin plugin) : IDisposable
         {
             var node = itemTooltip->UldManager.NodeList[i];
             var nodeText = node->GetAsAtkTextNode()->GetText().AsReadOnlySeString();
-            string[] allowedCategories = ["Metal", "Cloth", "Lumber", "Seafood", "Ingredient", "Stone", "Leather", "Bone", "Reagent"];
 
-            //allowedCategories = plugin.Configuration.Categories.ToArray();   //implement later
-
-            //Service.Log.Debug($"NodeID: {node->NodeId}, Text: {nodeText}");   
-            if (node->NodeId == 35 && Array.IndexOf(allowedCategories, nodeText.ToString()) < 0 || payloads == null)
+            foreach (var category in plugin.Configuration.AllowedCategories)
             {
-                //Service.Log.Debug($"If statement returned true: {nodeText}");
-                return;
+                if (node->NodeId == 35 && (category.Name == nodeText.ToString() && !category.IsAllowed) || payloads == null)
+                {
+                    return;
+                }
             }
-            //Service.Log.Debug($"If statement returned false!");
             if (node == null || node->NodeId != NodeId) {
                 continue; 
             }
@@ -72,13 +66,12 @@ public class ItemLevelTooltip(Plugin plugin) : IDisposable
             testNode->AtkResNode.NodeId = NodeId;
             testNode->AtkResNode.NodeFlags = NodeFlags.AnchorRight | NodeFlags.AnchorTop;
             testNode->AtkResNode.X = 16;
-            //testNode->AtkResNode.Width = 50;
             testNode->AtkResNode.Color = baseNode->AtkResNode.Color;
             testNode->TextColor = baseNode->TextColor;
             testNode->EdgeColor = baseNode->EdgeColor;
             testNode->LineSpacing = 18;
             testNode->FontSize = 12;
-            testNode->TextFlags = baseNode->TextFlags;// | TextFlags.MultiLine | TextFlags.AutoAdjustNodeSize;
+            testNode->TextFlags = baseNode->TextFlags;
 
             var prev = insertNode->PrevSiblingNode;
             testNode->AtkResNode.ParentNode = insertNode->ParentNode;
@@ -93,21 +86,8 @@ public class ItemLevelTooltip(Plugin plugin) : IDisposable
         testNode->SetText(new SeString(payloads).Encode());
         testNode->ResizeNodeForCurrentText();
         testNode->SetHeight(0);
-        //testNode->AtkResNode.SetYFloat(itemTooltip->WindowNode->AtkResNode.Height - 8);
         testNode->AtkResNode.SetYFloat(43);
         testNode->AtkResNode.SetXFloat(itemTooltip->WindowNode->AtkResNode.Width - 12 - testNode->AtkResNode.Width);
-        //itemTooltip->WindowNode->SetHeight((ushort)(itemTooltip->WindowNode->AtkResNode.Height + testNode->AtkResNode.Height + 4));
-        //itemTooltip->WindowNode->AtkResNode.SetHeight(itemTooltip->WindowNode->Height);
-        //itemTooltip->WindowNode->Component->UldManager.RootNode->SetHeight(itemTooltip->WindowNode->Height);
-        //itemTooltip->WindowNode->Component->UldManager.RootNode->PrevSiblingNode->SetHeight(itemTooltip->WindowNode->Height);
-        //itemTooltip->RootNode->SetHeight(itemTooltip->WindowNode->Height);
-        //var remainingSpace = ImGuiHelpers.MainViewport.WorkSize.Y - itemTooltip->Y - itemTooltip->GetScaledHeight(true) - 36;
-        /*if (remainingSpace < 0)
-        {
-            plugin.Hooks.ItemDetailSetPositionPreservingOriginal(itemTooltip, itemTooltip->X, (short)(itemTooltip->Y + remainingSpace), 1);
-        }*/
-
-        //testNode->SetYFloat(baseNode->Y + testNode->AtkResNode.Height + 4);
     }
 
     public static unsafe void RestoreToNormal(AtkUnitBase* itemTooltip)

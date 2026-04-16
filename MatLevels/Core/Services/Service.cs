@@ -2,7 +2,7 @@ using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 
-namespace MatLevels;
+namespace MatLevels.Core.Services;
 
 #pragma warning disable 8618
 internal class Service
